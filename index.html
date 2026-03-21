@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Teleprompter Studio</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="control-panel">
+        <div>
+          <p class="eyebrow">Teleprompter Studio</p>
+          <h1>Voice-aware reading preview</h1>
+          <p class="subtle">
+            Paste text, import a local file, or load a PDF / Word document URL.
+            Adjust the visible amount of script, the text size, spacing, and
+            speed, then run it hands-free with auto-scroll or microphone follow.
+          </p>
+        </div>
+
+        <section class="card input-card">
+          <div class="label-row">
+            <label class="field-label" for="sourceText">Paste script text</label>
+            <span class="microcopy">Live preview</span>
+          </div>
+          <textarea id="sourceText" placeholder="Paste your script here..."></textarea>
+          <div class="button-row">
+            <button id="loadTextButton" class="secondary">Refresh preview</button>
+            <button id="sampleButton">Load sample</button>
+            <button id="clearButton" class="ghost">Clear</button>
+          </div>
+        </section>
+
+        <section class="card input-card">
+          <label class="field-label" for="sourceUrl">Load from URL</label>
+          <div class="url-row">
+            <input id="sourceUrl" type="url" placeholder="https://example.com/script.pdf" />
+            <button id="loadUrlButton">Load link</button>
+          </div>
+          <p class="hint">
+            Supports PDF and Word links when the source allows cross-origin
+            access. DOCX is the most reliable Word format in-browser.
+          </p>
+          <label class="field-label" for="fileInput">Or open a local file</label>
+          <input id="fileInput" type="file" accept=".pdf,.doc,.docx,.txt" />
+        </section>
+
+        <section class="card controls-grid">
+          <div>
+            <div class="label-row">
+              <label for="windowRange">Visible text window</label>
+              <span id="windowValue">14 lines</span>
+            </div>
+            <input id="windowRange" type="range" min="4" max="28" value="14" />
+          </div>
+          <div>
+            <div class="label-row">
+              <label for="fontSizeRange">Text size</label>
+              <span id="fontSizeValue">54 px</span>
+            </div>
+            <input id="fontSizeRange" type="range" min="28" max="96" value="54" />
+          </div>
+          <div>
+            <div class="label-row">
+              <label for="speedRange">Auto-scroll speed</label>
+              <span id="speedValue">32 px/s</span>
+            </div>
+            <input id="speedRange" type="range" min="5" max="140" value="32" />
+          </div>
+          <div>
+            <div class="label-row">
+              <label for="lineHeightRange">Line spacing</label>
+              <span id="lineHeightValue">1.32</span>
+            </div>
+            <input id="lineHeightRange" type="range" min="100" max="220" value="132" />
+          </div>
+          <div>
+            <div class="label-row">
+              <label for="columnWidthRange">Text width</label>
+              <span id="columnWidthValue">74%</span>
+            </div>
+            <input id="columnWidthRange" type="range" min="50" max="92" value="74" />
+          </div>
+          <div class="toggle-grid">
+            <label class="toggle-card">
+              <input id="mirrorToggle" type="checkbox" />
+              <span>Mirror mode</span>
+            </label>
+            <label class="toggle-card">
+              <input id="capsToggle" type="checkbox" />
+              <span>All caps</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="card playback-card">
+          <div class="button-row wrap">
+            <button id="playButton">Play</button>
+            <button id="pauseButton" class="secondary">Pause</button>
+            <button id="resetButton" class="ghost">Reset</button>
+            <button id="voiceButton" class="secondary">Start voice follow</button>
+          </div>
+          <div class="info-grid">
+            <p id="statusMessage" class="status">Preview loaded. Paste or import your script to replace it.</p>
+            <p class="hint">Keyboard: Space = play/pause, ↑ ↓ = speed, M = mirror.</p>
+          </div>
+        </section>
+      </aside>
+
+      <main class="teleprompter-stage">
+        <div id="teleprompterViewport" class="teleprompter-viewport">
+          <div class="preview-chip">Live teleprompter preview</div>
+          <div class="fade top"></div>
+          <div id="focusFrame" class="focus-frame"></div>
+          <div id="teleprompterContent" class="teleprompter-content">
+            <p class="placeholder">
+              Your script will appear here in white text on a black background.
+            </p>
+          </div>
+          <div class="fade bottom"></div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

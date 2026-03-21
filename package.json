@@ -1,0 +1,11 @@
+{
+  "name": "teleprompter-studio",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "start": "python3 -m http.server 4173",
+    "dev": "python3 -m http.server 4173",
+    "build": "python3 -c \"print('Static app: no build step required.')\"",
+    "preview": "python3 -m http.server 4173"
+  }
+}
