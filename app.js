@@ -8,6 +8,7 @@ When you are ready, press play and start reading.`;
 
 const state = {
   scriptText: SAMPLE_SCRIPT,
+  segments: [],
   scrollOffset: 0,
   isPlaying: false,
   scrollSpeed: 32,
@@ -19,7 +20,7 @@ const state = {
   lastTick: 0,
   recognition: null,
   voiceEnabled: false,
-  voiceIndex: 0,
+  activeSegmentIndex: 0,
   mirror: false,
   uppercase: false,
 };
@@ -57,11 +58,24 @@ const normalizeWords = (value) =>
     .split(/\s+/)
     .filter(Boolean);
 
+const normalizeText = (value) => normalizeWords(value).join(' ');
+
 const setStatus = (message) => {
   statusMessage.textContent = message;
 };
 
-const getMaxScroll = () => Math.max(0, content.scrollHeight - viewport.clientHeight * 0.28);
+const splitIntoSegments = (text) =>
+  text
+    .split(/\n+/)
+    .flatMap((paragraph) =>
+      paragraph
+        .split(/(?<=[.!?])\s+/)
+        .map((segment) => segment.trim())
+        .filter(Boolean),
+    )
+    .filter(Boolean);
+
+const getMaxScroll = () => Math.max(0, content.scrollHeight - viewport.clientHeight);
 
 const clampOffset = () => {
   state.scrollOffset = Math.min(Math.max(state.scrollOffset, 0), getMaxScroll());
@@ -75,7 +89,7 @@ const applyTransform = () => {
 
 const updateVisibleWindow = () => {
   const focusHeight = Math.min(
-    80,
+    82,
     Math.max(18, ((state.visibleLines * state.lineHeight * state.fontSize) / viewport.clientHeight) * 100),
   );
   document.documentElement.style.setProperty('--focus-height', `${focusHeight}%`);
@@ -91,17 +105,71 @@ const applyTypography = () => {
   updateVisibleWindow();
 };
 
+const getSegmentElements = () => Array.from(content.querySelectorAll('.script-segment'));
+
+const getFocusCenterY = () => state.scrollOffset + viewport.clientHeight / 2;
+
+const updateActiveStyles = () => {
+  const segmentElements = getSegmentElements();
+  segmentElements.forEach((element, index) => {
+    const isActive = index === state.activeSegmentIndex;
+    element.classList.toggle('is-active', isActive);
+    element.classList.toggle('is-before', index < state.activeSegmentIndex);
+    element.classList.toggle('is-after', index > state.activeSegmentIndex);
+  });
+};
+
+const syncActiveSegmentFromScroll = () => {
+  const segmentElements = getSegmentElements();
+  if (!segmentElements.length) return;
+
+  const focusY = getFocusCenterY();
+  let closestIndex = 0;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  segmentElements.forEach((element, index) => {
+    const center = element.offsetTop + element.offsetHeight / 2;
+    const distance = Math.abs(center - focusY);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = index;
+    }
+  });
+
+  state.activeSegmentIndex = closestIndex;
+  updateActiveStyles();
+};
+
+const scrollSegmentIntoFocus = (index) => {
+  const segmentElements = getSegmentElements();
+  const element = segmentElements[index];
+  if (!element) return;
+
+  const target = element.offsetTop + element.offsetHeight / 2 - viewport.clientHeight / 2;
+  state.scrollOffset = target;
+  clampOffset();
+  applyTransform();
+  syncActiveSegmentFromScroll();
+};
+
 const renderScript = () => {
   if (!state.scriptText.trim()) {
+    state.segments = [];
+    state.activeSegmentIndex = 0;
     content.innerHTML = '<p class="placeholder">Your script will appear here in white text on a black background.</p>';
     state.scrollOffset = 0;
     applyTypography();
     return;
   }
 
-  content.textContent = state.scriptText;
+  state.segments = splitIntoSegments(state.scriptText);
+  content.innerHTML = state.segments
+    .map((segment, index) => `<span class="script-segment" data-index="${index}">${segment}</span>`)
+    .join('');
+
   clampOffset();
   applyTypography();
+  syncActiveSegmentFromScroll();
 };
 
 const stopPlayback = () => {
@@ -125,6 +193,7 @@ const tick = (timestamp) => {
   state.scrollOffset += (state.scrollSpeed * deltaMs) / 1000;
   clampOffset();
   applyTransform();
+  syncActiveSegmentFromScroll();
 
   if (state.scrollOffset >= getMaxScroll()) {
     stopPlayback();
@@ -168,14 +237,15 @@ const stopVoiceTracking = (message = 'Voice follow stopped.') => {
 const resetPlayback = () => {
   stopPlayback();
   state.scrollOffset = 0;
-  state.voiceIndex = 0;
+  state.activeSegmentIndex = 0;
   applyTransform();
+  updateActiveStyles();
   setStatus('Playback reset to the start.');
 };
 
 const updateText = (text, sourceLabel = 'Text loaded.') => {
   state.scriptText = text.replace(/\n{3,}/g, '\n\n').trim();
-  state.voiceIndex = 0;
+  state.activeSegmentIndex = 0;
   resetPlayback();
   renderScript();
   setStatus(sourceLabel);
@@ -263,37 +333,51 @@ const handleFile = async (file) => {
   }
 };
 
+const sentenceMatchScore = (transcriptWords, segmentWords) => {
+  if (!transcriptWords.length || !segmentWords.length) return 0;
+  const transcriptSet = new Set(transcriptWords);
+  let matches = 0;
+  segmentWords.forEach((word) => {
+    if (transcriptSet.has(word)) matches += 1;
+  });
+  return matches / segmentWords.length;
+};
+
 const syncVoicePosition = (transcript) => {
-  const spokenWords = normalizeWords(transcript);
-  const scriptWords = normalizeWords(state.scriptText);
-  if (!spokenWords.length || !scriptWords.length) return;
+  const normalizedTranscript = normalizeText(transcript);
+  if (!normalizedTranscript || !state.segments.length) return;
 
-  const targetLength = Math.min(Math.max(4, spokenWords.length), 12);
-  const targetPhrase = spokenWords.slice(-targetLength).join(' ');
-  let foundIndex = -1;
+  const transcriptWords = normalizedTranscript.split(' ');
+  let bestIndex = -1;
+  let bestScore = 0;
+  const searchStart = Math.max(0, state.activeSegmentIndex - 1);
+  const searchEnd = Math.min(state.segments.length, state.activeSegmentIndex + 8);
 
-  for (let index = state.voiceIndex; index <= scriptWords.length - targetLength; index += 1) {
-    const candidate = scriptWords.slice(index, index + targetLength).join(' ');
-    if (candidate === targetPhrase) {
-      foundIndex = index;
+  for (let index = searchStart; index < searchEnd; index += 1) {
+    const segmentWords = normalizeWords(state.segments[index]);
+    const score = sentenceMatchScore(transcriptWords, segmentWords);
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+    if (normalizedTranscript.includes(normalizeText(state.segments[index]).slice(0, 80))) {
+      bestIndex = index;
+      bestScore = 1;
       break;
     }
   }
 
-  if (foundIndex === -1) return;
+  if (bestIndex === -1 || bestScore < 0.35) return;
 
-  state.voiceIndex = foundIndex;
-  const ratio = foundIndex / Math.max(scriptWords.length, 1);
-  state.scrollOffset = ratio * getMaxScroll();
-  clampOffset();
-  applyTransform();
-  setStatus('Voice follow is listening and tracking your script position.');
+  state.activeSegmentIndex = bestIndex;
+  scrollSegmentIntoFocus(bestIndex);
+  setStatus('Voice follow is listening and keeping the current sentence centered.');
 };
 
 const toggleVoice = () => {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) {
-    setStatus('Speech recognition is not available in this browser.');
+    setStatus('Speech recognition is not available in this browser. Try Chrome on desktop and allow microphone access.');
     return;
   }
 
@@ -312,9 +396,10 @@ const toggleVoice = () => {
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.lang = 'en-US';
+  recognition.maxAlternatives = 1;
   recognition.onresult = (event) => {
     const transcript = Array.from(event.results)
-      .slice(event.resultIndex)
+      .slice(Math.max(0, event.resultIndex - 1))
       .map((result) => result[0].transcript)
       .join(' ');
     syncVoicePosition(transcript);
@@ -324,18 +409,28 @@ const toggleVoice = () => {
       stopVoiceTracking('Microphone permission was denied.');
       return;
     }
-    setStatus(`Voice follow error: ${event.error}.`);
+    if (event.error === 'no-speech') {
+      setStatus('Listening for speech...');
+      return;
+    }
+    setStatus(`Voice follow error: ${event.error}. Try Chrome and confirm microphone permissions.`);
   };
   recognition.onend = () => {
     if (state.voiceEnabled) {
       recognition.start();
     }
   };
-  recognition.start();
-  state.recognition = recognition;
-  state.voiceEnabled = true;
-  voiceButton.textContent = 'Stop voice follow';
-  setStatus('Voice follow started. Allow microphone access and begin speaking the script.');
+
+  try {
+    recognition.start();
+    state.recognition = recognition;
+    state.voiceEnabled = true;
+    voiceButton.textContent = 'Stop voice follow';
+    setStatus('Voice follow started. Allow microphone access and begin reading the current sentence.');
+  } catch (error) {
+    console.error(error);
+    setStatus('Voice follow could not start. Check microphone permissions and browser support.');
+  }
 };
 
 const refreshFromTextarea = () => {
@@ -374,11 +469,13 @@ controls.windowRange.addEventListener('input', (event) => {
   state.visibleLines = Number(event.target.value);
   controls.windowValue.textContent = `${state.visibleLines} lines`;
   updateVisibleWindow();
+  scrollSegmentIntoFocus(state.activeSegmentIndex);
 });
 controls.fontSizeRange.addEventListener('input', (event) => {
   state.fontSize = Number(event.target.value);
   controls.fontSizeValue.textContent = `${state.fontSize} px`;
   renderScript();
+  scrollSegmentIntoFocus(state.activeSegmentIndex);
 });
 controls.speedRange.addEventListener('input', (event) => {
   state.scrollSpeed = Number(event.target.value);
@@ -389,11 +486,13 @@ controls.lineHeightRange.addEventListener('input', (event) => {
   state.lineHeight = Number(event.target.value) / 100;
   controls.lineHeightValue.textContent = state.lineHeight.toFixed(2);
   renderScript();
+  scrollSegmentIntoFocus(state.activeSegmentIndex);
 });
 controls.columnWidthRange.addEventListener('input', (event) => {
   state.columnWidth = Number(event.target.value);
   controls.columnWidthValue.textContent = `${state.columnWidth}%`;
   renderScript();
+  scrollSegmentIntoFocus(state.activeSegmentIndex);
 });
 controls.mirrorToggle.addEventListener('change', (event) => {
   state.mirror = event.target.checked;
@@ -403,12 +502,13 @@ controls.mirrorToggle.addEventListener('change', (event) => {
 controls.capsToggle.addEventListener('change', (event) => {
   state.uppercase = event.target.checked;
   renderScript();
+  scrollSegmentIntoFocus(state.activeSegmentIndex);
   setStatus(state.uppercase ? 'All caps enabled.' : 'All caps disabled.');
 });
 
 window.addEventListener('resize', () => {
-  clampOffset();
   renderScript();
+  scrollSegmentIntoFocus(state.activeSegmentIndex);
 });
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
@@ -448,4 +548,4 @@ window.addEventListener('keydown', (event) => {
 });
 
 renderScript();
-updateVisibleWindow();
+scrollSegmentIntoFocus(0);

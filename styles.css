@@ -210,8 +210,8 @@ textarea {
 .teleprompter-content {
   position: absolute;
   inset: 0;
-  overflow: hidden;
-  padding-block: 38vh;
+  overflow: visible;
+  padding-block: 46vh;
   padding-inline: calc((100% - var(--column-width)) / 2);
   font-size: 54px;
   line-height: 1.32;
@@ -221,6 +221,22 @@ textarea {
   white-space: pre-wrap;
   will-change: transform;
   text-align: left;
+}
+
+.script-segment {
+  display: block;
+  color: #5f5f5f;
+  margin-bottom: 0.55em;
+  transition: color 140ms ease, opacity 140ms ease;
+}
+
+.script-segment.is-before,
+.script-segment.is-after {
+  color: #5f5f5f;
+}
+
+.script-segment.is-active {
+  color: #ffffff;
 }
 
 .teleprompter-content.is-caps {
